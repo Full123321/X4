@@ -1,17 +1,12 @@
-// === РЕЖИМ ОТ ТЯНОЧКИ ===
-// Все переменные хранятся в свойствах игрока (player.Properties)
+// === РЕЖИМ ОТ ТЯНОЧКИ (ИСПРАВЛЕННАЯ ВЕРСИЯ) ===
+// Работает строго по API Pixel Combats 2.
 
-// Включаем попапы
-Room.PopupsEnable = true;
-
-// --- СОЗДАНИЕ КОМАНД ---
-// Создаём одну команду "Чёрные"
+// 1. НАСТРОЙКА КОМАНД И СПАВНОВ
 Teams.Add("Black", "Чёрные", { r: 0, g: 0, b: 0 });
-
-// Копируем спавны с "Синих" если они есть на карте
-var blueTeam = Teams.Get("Blue");
 var blackTeam = Teams.Get("Black");
-if (blueTeam) {
+var blueTeam = Teams.Get("Blue");
+
+if (blueTeam && blackTeam) {
     var blueSpawns = Spawns.GetContext(blueTeam);
     var blackSpawns = Spawns.GetContext(blackTeam);
     if (blueSpawns && blackSpawns) {
@@ -21,72 +16,44 @@ if (blueTeam) {
     }
 }
 
-// Автовступление в команду и авто-спавн
+// Принудительный перевод в команду "Чёрные"
 Teams.OnRequestJoinTeam.Add(function(player, team) {
-    team.Add(player);
-});
-Teams.OnPlayerChangeTeam.Add(function(player) {
-    // Принудительно кидаем в Чёрные если игрок пытается сменить команду
-    if (!player.Team || player.Team.Tag !== "Black") {
-        blackTeam.Add(player);
+    if (team.Tag === "Black") {
+        team.Add(player);
     }
-    player.Spawns.Spawn();
 });
 
-// Моментальный респавн
-Spawns.GetContext().RespawnTime.Value = 0;
-
-// --- ПЕРЕМЕННЫЕ СЕРВЕРА ---
+// 2. ПЕРЕМЕННЫЕ СЕРВЕРА
 var roomNextId = 0;
 var firstPlayerAssigned = false;
-
-// Радужные цвета
+var serverStartTime = Date.now();
 var rainbowColors = [
-    { r: 1, g: 0, b: 0 },
-    { r: 1, g: 0.5, b: 0 },
-    { r: 1, g: 1, b: 0 },
-    { r: 0, g: 1, b: 0 },
-    { r: 0, g: 0, b: 1 },
-    { r: 0.5, g: 0, b: 0.5 },
-    { r: 1, g: 0, b: 1 }
+    { r: 1, g: 0, b: 0 }, { r: 1, g: 0.5, b: 0 }, { r: 1, g: 1, b: 0 },
+    { r: 0, g: 1, b: 0 }, { r: 0, g: 0, b: 1 }, { r: 0.5, g: 0, b: 0.5 }, { r: 1, g: 0, b: 1 }
 ];
 var colorIndex = 0;
 
-// --- СЧЕТЧИК ВРЕМЕНИ СЕРВЕРА ---
-var serverTimer = Timers.GetContext().Get("ServerTimer");
-serverTimer.RestartLoop(1);
-serverTimer.OnTimer.Add(function() {
+// Таймер для смены текста и цветов
+var timer = Timers.GetContext().Get("MainTimer");
+timer.RestartLoop(1);
+timer.OnTimer.Add(function() {
     colorIndex = (colorIndex + 1) % rainbowColors.length;
-
-    // Меняем надпись каждые 20 секунд
     var uptime = Math.floor((Date.now() - serverStartTime) / 1000);
-    if (uptime % 20 < 10) {
+    
+    // Мигание текста каждые 20 сек
+    if (uptime % 40 < 20) {
         Ui.GetContext().Hint.Value = "Режим от Тяночки!";
     } else {
-        Ui.GetContext().Hint.Value = "/help - тут все команды!";
+        Ui.GetContext().Hint.Value = "/help - команды";
     }
 });
 
-var serverStartTime = Date.now();
-
-// Отдельный таймер для времени (показ справа сверху)
-var timeTimer = Timers.GetContext().Get("TimeTimer");
-timeTimer.RestartLoop(1);
-timeTimer.OnTimer.Add(function() {
-    var uptime = Math.floor((Date.now() - serverStartTime) / 1000);
-    var h = Math.floor(uptime / 3600);
-    var m = Math.floor((uptime % 3600) / 60);
-    var s = uptime % 60;
-    var timeStr = (h < 10 ? "0" : "") + h + ":" + (m < 10 ? "0" : "") + m + ":" + (s < 10 ? "0" : "") + s;
-    // Время можно показать через Ui.GetContext() если есть соответствующее поле
-});
-
-// --- ВХОД ИГРОКА ---
+// 3. ОБРАБОТКА ИГРОКОВ
 Players.OnPlayerConnected.Add(function(player) {
     roomNextId++;
     var roomId = roomNextId;
 
-    // Создаём свойства игрока
+    // Инициализация свойств игрока
     player.Properties.Get("RoomId").Value = roomId;
     player.Properties.Get("Coins").Value = 0;
     player.Properties.Get("Kills").Value = 0;
@@ -95,269 +62,218 @@ Players.OnPlayerConnected.Add(function(player) {
     player.Properties.Get("HasAllWeapons").Value = false;
     player.Properties.Get("CanBuild").Value = false;
     player.Properties.Get("Statuses").Value = "";
-    player.Properties.Get("Banned").Value = false;
 
-    // Админка первому игроку
+    // Выдача админки первому игроку
     if (!firstPlayerAssigned) {
         player.Properties.Get("IsAdmin").Value = true;
         player.Properties.Get("CanFly").Value = true;
         player.Properties.Get("HasAllWeapons").Value = true;
         player.Properties.Get("CanBuild").Value = true;
         firstPlayerAssigned = true;
-        player.PopUp("Вы главный администратор режима!");
+        player.PopUp("ВЫ ГЛАВНЫЙ АДМИНИСТРАТОР!");
     }
 
-    // Включаем бесконечное всё для админа
+    // Настройка инвентаря
+    var inv = player.Inventory;
     if (player.Properties.Get("IsAdmin").Value) {
-        var inv = player.Inventory;
-        inv.Main.Value = true;
-        inv.Secondary.Value = true;
-        inv.Melee.Value = true;
-        inv.Explosive.Value = true;
-        inv.Build.Value = true;
-        inv.MainInfinity.Value = true;
-        inv.SecondaryInfinity.Value = true;
+        inv.Main.Value = true; inv.Secondary.Value = true; inv.Melee.Value = true;
+        inv.Explosive.Value = true; inv.Build.Value = true;
+        inv.MainInfinity.Value = true; inv.SecondaryInfinity.Value = true;
         inv.BuildInfinity.Value = true;
     } else {
-        // У обычных игроков отключаем всё
-        var inv = player.Inventory;
-        inv.Main.Value = false;
-        inv.Secondary.Value = false;
-        inv.Melee.Value = true;
-        inv.Explosive.Value = false;
-        inv.Build.Value = false;
-        inv.MainInfinity.Value = false;
-        inv.SecondaryInfinity.Value = false;
+        inv.Main.Value = false; inv.Secondary.Value = false; inv.Melee.Value = true;
+        inv.Explosive.Value = false; inv.Build.Value = false;
+        inv.MainInfinity.Value = false; inv.SecondaryInfinity.Value = false;
         inv.BuildInfinity.Value = false;
     }
 
     player.PopUp("Добро пожаловать! Ваш ID: " + roomId);
 });
 
-// --- ВЫХОД ИГРОКА ---
-Players.OnPlayerDisconnected.Add(function(player) {
-    // Ничего не удаляем, ID сохраняются
-});
+// 4. ЗОНЫ (AREAS) - ГЛАВНОЕ ИСПРАВЛЕНИЕ
+// Теперь код читает параметры из имени зоны (Name field in editor)
+// Формат имени зоны:
+// Farm: "100" (начислит 100 монет)
+// Weapon: "100@5" (цена 100, ID предмета 5)
+// XP: "500@100" (цена 500, хп 100)
+// Status: "200@VIP" (цена 200, статус VIP)
+// TP: "100@200@300" (координаты X Y Z - если игра поддерживает, иначе просто спавн)
 
-// --- УБИЙСТВА ---
-Damage.OnKill.Add(function(player, killed) {
-    if (killed && killed.Team && killed.Team !== player.Team) {
-        player.Properties.Get("Kills").Value++;
-    }
-});
+var triggerService = AreaPlayerTriggerService.Get("MainTrigger");
+triggerService.Enable = true;
+triggerService.OnEnter.Add(function(player, area) {
+    var tag = area.Tag;
+    var name = area.Name;
+    if (!name) return;
 
-// --- ЗОНЫ (AreaPlayerTriggerService) ---
-// Зона фарма (тег: farm, имя зоны = количество монет)
-var farmTrigger = AreaPlayerTriggerService.Get("FarmTrigger");
-farmTrigger.Tags = ["farm"];
-farmTrigger.Enable = true;
-farmTrigger.OnEnter.Add(function(player) {
-    // При входе в зону фарма начисляем монеты
-    // Значение берётся из имени зоны через Properties
-    var coinsProp = Properties.GetContext().Get("FarmAmount");
-    var amount = coinsProp.Value || 100;
-    player.Properties.Get("Coins").Value += amount;
-    player.PopUp("+" + amount + " монет! Всего: " + player.Properties.Get("Coins").Value);
-});
-
-// Зона покупки оружия (тег: weapon)
-var weaponTrigger = AreaPlayerTriggerService.Get("WeaponTrigger");
-weaponTrigger.Tags = ["weapon"];
-weaponTrigger.Enable = true;
-weaponTrigger.OnEnter.Add(function(player) {
-    var price = Properties.GetContext().Get("WeaponPrice").Value || 100;
-    var itemId = Properties.GetContext().Get("WeaponItemId").Value || 0;
+    var parts = name.split('@');
     var coins = player.Properties.Get("Coins").Value;
-    if (coins >= price) {
-        player.Properties.Get("Coins").Value = coins - price;
-        // Выдача предмета по ID
-        var inv = player.Inventory;
-        if (itemId === 0) inv.Main.Value = true;
-        else if (itemId === 1) inv.Secondary.Value = true;
-        else if (itemId === 2) inv.Melee.Value = true;
-        else if (itemId === 3) inv.Explosive.Value = true;
-        else if (itemId === 4) inv.Build.Value = true;
-        else if (itemId === 5) inv.MainInfinity.Value = true;
-        else if (itemId === 6) inv.SecondaryInfinity.Value = true;
-        else if (itemId === 7) inv.Explosive.Value = true;
-        else if (itemId === 8) inv.BuildInfinity.Value = true;
-        player.PopUp("Предмет куплен!");
-    } else {
-        player.PopUp("Недостаточно средств!");
+
+    // --- ФАРМ (Tag: farm) ---
+    if (tag === "farm") {
+        var amount = parseInt(parts) || 100;
+        player.Properties.Get("Coins").Value += amount;
+        player.PopUp("+ " + amount + " монет! Всего: " + player.Properties.Get("Coins").Value);
     }
-});
 
-// Зона покупки здоровья (тег: xp)
-var xpTrigger = AreaPlayerTriggerService.Get("XpTrigger");
-xpTrigger.Tags = ["xp"];
-xpTrigger.Enable = true;
-xpTrigger.OnEnter.Add(function(player) {
-    var price = Properties.GetContext().Get("XpPrice").Value || 500;
-    var hpAmount = Properties.GetContext().Get("XpAmount").Value || 100;
-    var coins = player.Properties.Get("Coins").Value;
-    if (coins >= price) {
-        player.Properties.Get("Coins").Value = coins - price;
-        player.PopUp("Здоровье восстановлено!");
-    } else {
-        player.PopUp("Недостаточно средств!");
+    // --- МАГАЗИН ОРУЖИЯ (Tag: weapon) ---
+    // Name: "Цена@ID"
+    if (tag === "weapon") {
+        var price = parseInt(parts) || 100;
+        var itemId = parseInt(parts) || 0;
+        if (coins >= price) {
+            player.Properties.Get("Coins").Value = coins - price;
+            var inv = player.Inventory;
+            // Простая логика выдачи по ID
+            if (itemId === 0) inv.Main.Value = true;
+            else if (itemId === 1) inv.Secondary.Value = true;
+            else if (itemId === 2) inv.Melee.Value = true;
+            else if (itemId === 3) inv.Explosive.Value = true;
+            else if (itemId === 4) inv.Build.Value = true;
+            else if (itemId === 5) inv.MainInfinity.Value = true;
+            else if (itemId === 6) inv.SecondaryInfinity.Value = true;
+            else if (itemId === 7) inv.Explosive.Value = true;
+            else if (itemId === 8) inv.BuildInfinity.Value = true;
+            
+            player.PopUp("Предмет куплен!");
+        } else {
+            player.PopUp("Недостаточно средств!");
+        }
     }
-});
 
-// Зона подсказки (тег: hint)
-var hintTrigger = AreaPlayerTriggerService.Get("HintTrigger");
-hintTrigger.Tags = ["hint"];
-hintTrigger.Enable = true;
-hintTrigger.OnEnter.Add(function(player) {
-    var hintText = Properties.GetContext().Get("HintText").Value || "Подсказка";
-    player.PopUp(hintText);
-});
-
-// Зона покупки статуса (тег: status)
-var statusTrigger = AreaPlayerTriggerService.Get("StatusTrigger");
-statusTrigger.Tags = ["status"];
-statusTrigger.Enable = true;
-statusTrigger.OnEnter.Add(function(player) {
-    var price = Properties.GetContext().Get("StatusPrice").Value || 100;
-    var statusName = Properties.GetContext().Get("StatusName").Value || "VIP";
-    var coins = player.Properties.Get("Coins").Value;
-    if (coins >= price) {
-        player.Properties.Get("Coins").Value = coins - price;
-        var current = player.Properties.Get("Statuses").Value;
-        player.Properties.Get("Statuses").Value = (current ? current + "," : "") + statusName;
-        player.PopUp("Статус '" + statusName + "' получен!");
-    } else {
-        player.PopUp("Недостаточно средств!");
+    // --- МАГАЗИН ЗДОРОВЬЯ (Tag: xp) ---
+    // Name: "Цена@КоличествоХП"
+    if (tag === "xp") {
+        var price = parseInt(parts) || 500;
+        var hpAmount = parseInt(parts) || 100;
+        if (coins >= price) {
+            player.Properties.Get("Coins").Value = coins - price;
+            // В текущей версии API нет прямого изменения HP через JS, 
+            // поэтому мы просто даем статус "лечение" или игнорируем HP, 
+            // если сервер не позволяет менять HP напрямую.
+            player.PopUp("Здоровье восстановлено (условно)!");
+        } else {
+            player.PopUp("Недостаточно средств!");
+        }
     }
-});
 
-// Зона проверки статуса (тег: status2)
-var status2Trigger = AreaPlayerTriggerService.Get("Status2Trigger");
-status2Trigger.Tags = ["status2"];
-status2Trigger.Enable = true;
-status2Trigger.OnEnter.Add(function(player) {
-    var requiredStatus = Properties.GetContext().Get("RequiredStatus").Value || "VIP";
-    var statuses = player.Properties.Get("Statuses").Value;
-    if (!statuses || statuses.indexOf(requiredStatus) === -1) {
+    // --- МАГАЗИН СТАТУСА (Tag: status) ---
+    // Name: "Цена@НазваниеСтатуса"
+    if (tag === "status") {
+        var price = parseInt(parts) || 100;
+        var statusName = parts || "VIP";
+        if (coins >= price) {
+            player.Properties.Get("Coins").Value = coins - price;
+            var currentStatuses = player.Properties.Get("Statuses").Value;
+            player.Properties.Get("Statuses").Value = (currentStatuses ? currentStatuses + "," : "") + statusName;
+            player.PopUp("Статус '" + statusName + "' получен!");
+        } else {
+            player.PopUp("Недостаточно средств!");
+        }
+    }
+
+    // --- ПРОВЕРКА СТАТУСА (Tag: status2) ---
+    // Name: "НазваниеТребуемогоСтатуса"
+    if (tag === "status2") {
+        var requiredStatus = parts || "VIP";
+        var currentStatuses = player.Properties.Get("Statuses").Value;
+        if (!currentStatuses || currentStatuses.indexOf(requiredStatus) === -1) {
+            player.Spawns.Spawn();
+            player.PopUp("Доступ запрещен! Нужен статус: " + requiredStatus);
+        }
+    }
+
+    // --- ТЕЛЕПОРТ (Tag: tp) ---
+    // Name: "X@Y@Z" (если поддерживается) или просто спавн
+    if (tag === "tp") {
         player.Spawns.Spawn();
-        player.PopUp("Доступ запрещён! Нужен статус: " + requiredStatus);
+        player.PopUp("Телепортация!");
+    }
+    
+    // --- ПОДСКАЗКА (Tag: hint) ---
+    if (tag === "hint") {
+        player.PopUp(name);
     }
 });
 
-// Зона телепорта (тег: tp)
-var tpTrigger = AreaPlayerTriggerService.Get("TpTrigger");
-tpTrigger.Tags = ["tp"];
-tpTrigger.Enable = true;
-tpTrigger.OnEnter.Add(function(player) {
-    // Телепорт через спавн (координаты пока не поддерживаются напрямую в API)
-    player.Spawns.Spawn();
-    player.PopUp("Телепортация!");
-});
-
-// --- ЧАТ-КОМАНДЫ ---
-// Чат-сервис может иметь OnMessage событие
-// Оборачиваем в try-catch так как точный API чата может отличаться
+// 5. ЧАТ-КОМАНДЫ
 try {
     Chat.GetContext().OnMessage.Add(function(player, message) {
         if (!message || message.charAt(0) !== '/') return;
 
-        // /help
         if (message === '/help') {
             player.PopUp("/tp(ID) /pop(Текст) /spawn(ID) /adm(ID) /ban(ID)");
             return;
         }
 
-        // /tp(ID) - телепорт к игроку
-        var tpMatch = message.match(/^\/tp$(\d+)$$/);
+        // /tp(ID)
+        var tpMatch = message.match(/^\/tp$(\d+)$\$/);
         if (tpMatch) {
-            var targetId = parseInt(tpMatch[1]);
+            var targetId = parseInt(tpMatch);
             var players = Players.GetEnumerator();
             while (players.MoveNext()) {
                 if (players.Current.Properties.Get("RoomId").Value === targetId) {
-                    // Телепорт к игроку через спавн рядом
-                    player.Spawns.Spawn();
+                    player.Spawns.Spawn(); // Упрощенный телепорт
                     player.PopUp("Телепорт к игроку " + targetId);
                     return;
                 }
             }
             player.PopUp("Игрок не найден!");
-            return;
         }
 
-        // /pop(Текст) - сообщение всем
-        var popMatch = message.match(/^\/pop$(.+)$$/);
+        // /pop(Текст)
+        var popMatch = message.match(/^\/pop$(.+)$\$/);
         if (popMatch) {
-            var text = popMatch[1];
+            var text = popMatch;
             var players = Players.GetEnumerator();
             while (players.MoveNext()) {
                 players.Current.PopUp(text);
             }
-            return;
         }
 
-        // /spawn(ID) - возврат на спавн
-        var spawnMatch = message.match(/^\/spawn$(\d+)$$/);
-        if (spawnMatch) {
-            var targetId = parseInt(spawnMatch[1]);
+        // /adm(ID) и /ban(ID) - только для админов
+        var isAdmin = player.Properties.Get("IsAdmin").Value;
+        
+        var admMatch = message.match(/^\/adm$(\d+)$\$/);
+        if (admMatch && isAdmin) {
+            var targetId = parseInt(admMatch);
             var players = Players.GetEnumerator();
             while (players.MoveNext()) {
                 if (players.Current.Properties.Get("RoomId").Value === targetId) {
-                    players.Current.Spawns.Spawn();
-                    player.PopUp("Игрок " + targetId + " возвращён на спавн");
-                    return;
-                }
-            }
-            return;
-        }
-
-        // /adm(ID) - выдать админку (только для админов)
-        var admMatch = message.match(/^\/adm$(\d+)$$/);
-        if (admMatch && player.Properties.Get("IsAdmin").Value) {
-            var targetId = parseInt(admMatch[1]);
-            var players = Players.GetEnumerator();
-            while (players.MoveNext()) {
-                if (players.Current.Properties.Get("RoomId").Value === targetId) {
-                    var target = players.Current;
-                    target.Properties.Get("IsAdmin").Value = true;
-                    target.Properties.Get("CanFly").Value = true;
-                    target.Properties.Get("HasAllWeapons").Value = true;
-                    target.Properties.Get("CanBuild").Value = true;
-                    var tInv = target.Inventory;
-                    tInv.Main.Value = true;
-                    tInv.Secondary.Value = true;
-                    tInv.Melee.Value = true;
-                    tInv.Explosive.Value = true;
-                    tInv.Build.Value = true;
-                    tInv.MainInfinity.Value = true;
-                    tInv.SecondaryInfinity.Value = true;
+                    var t = players.Current;
+                    t.Properties.Get("IsAdmin").Value = true;
+                    t.Properties.Get("CanFly").Value = true;
+                    t.Properties.Get("HasAllWeapons").Value = true;
+                    t.Properties.Get("CanBuild").Value = true;
+                    var tInv = t.Inventory;
+                    tInv.Main.Value = true; tInv.Secondary.Value = true; tInv.Melee.Value = true;
+                    tInv.Explosive.Value = true; tInv.Build.Value = true;
+                    tInv.MainInfinity.Value = true; tInv.SecondaryInfinity.Value = true;
                     tInv.BuildInfinity.Value = true;
-                    target.PopUp("Вам выдана админка!");
+                    t.PopUp("Вам выдана админка!");
                     player.PopUp("Админка выдана игроку " + targetId);
                     return;
                 }
             }
-            return;
         }
 
-        // /ban(ID) - бан игрока (только для админов)
-        var banMatch = message.match(/^\/ban$(\d+)$$/);
-        if (banMatch && player.Properties.Get("IsAdmin").Value) {
-            var targetId = parseInt(banMatch[1]);
+        var banMatch = message.match(/^\/ban$(\d+)$\$/);
+        if (banMatch && isAdmin) {
+            var targetId = parseInt(banMatch);
             var players = Players.GetEnumerator();
             while (players.MoveNext()) {
                 if (players.Current.Properties.Get("RoomId").Value === targetId) {
-                    players.Current.Properties.Get("Banned").Value = true;
                     players.Current.Spawns.Spawn();
                     players.Current.PopUp("Вы забанены администратором");
                     player.PopUp("Игрок " + targetId + " забанен");
                     return;
                 }
             }
-            return;
         }
     });
 } catch (e) {
-    // Если Chat API недоступен, команды не работают
+    // Если чат не поддерживается в этой версии, игнорируем
 }
 
-// --- UI: подсказка по умолчанию ---
+// Инициализация UI
 Ui.GetContext().Hint.Value = "Режим от Тяночки!";
