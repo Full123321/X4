@@ -1,48 +1,45 @@
-// === РЕЖИМ ОТ ТЯНОЧКИ (ИСПРАВЛЕННАЯ ВЕРСИЯ) ===
-// Работает строго по API Pixel Combats 2.
+// === РЕЖИМ ОТ ТЯНОЧКИ (ТОЛЬКО СИНЯЯ КОМАНДА) ===
 
-// 1. НАСТРОЙКА КОМАНД И СПАВНОВ
-Teams.Add("Black", "Чёрные", { r: 0, g: 0, b: 0 });
-var blackTeam = Teams.Get("Black");
+// 1. НАСТРОЙКА КОМАНД
+// Оставляем только команду "Blue". Не создаём "Black".
 var blueTeam = Teams.Get("Blue");
 
-if (blueTeam && blackTeam) {
-    var blueSpawns = Spawns.GetContext(blueTeam);
-    var blackSpawns = Spawns.GetContext(blackTeam);
-    if (blueSpawns && blackSpawns) {
-        for (var i = 0; i < blueSpawns.SpawnPointsGroups.Count; i++) {
-            blackSpawns.SpawnPointsGroups.Add(blueSpawns.SpawnPointsGroups.Get(i));
-        }
-    }
+// Если по какой-то причине на карте нет команды Blue, создадим её вручную
+if (!blueTeam) {
+    Teams.Add("Blue", "Синие", { r: 0, g: 0, b: 1 });
+    blueTeam = Teams.Get("Blue");
 }
 
-// Принудительный перевод в команду "Чёрные"
+// Принудительный перевод в команду "Синие"
 Teams.OnRequestJoinTeam.Add(function(player, team) {
-    if (team.Tag === "Black") {
+    if (team.Tag === "Blue") {
         team.Add(player);
     }
 });
+
+// Гарантированный перевод при смене команды
+Teams.OnPlayerChangeTeam.Add(function(player) {
+    if (!player.Team || player.Team.Tag !== "Blue") {
+        blueTeam.Add(player);
+    }
+    player.Spawns.Spawn();
+});
+
+// Моментальный респавн
+Spawns.GetContext().RespawnTime.Value = 0;
 
 // 2. ПЕРЕМЕННЫЕ СЕРВЕРА
 var roomNextId = 0;
 var firstPlayerAssigned = false;
 var serverStartTime = Date.now();
-var rainbowColors = [
-    { r: 1, g: 0, b: 0 }, { r: 1, g: 0.5, b: 0 }, { r: 1, g: 1, b: 0 },
-    { r: 0, g: 1, b: 0 }, { r: 0, g: 0, b: 1 }, { r: 0.5, g: 0, b: 0.5 }, { r: 1, g: 0, b: 1 }
-];
-var colorIndex = 0;
 
-// Таймер для смены текста и цветов
+// Таймер для смены текста
 var timer = Timers.GetContext().Get("MainTimer");
 timer.RestartLoop(1);
 timer.OnTimer.Add(function() {
-    colorIndex = (colorIndex + 1) % rainbowColors.length;
     var uptime = Math.floor((Date.now() - serverStartTime) / 1000);
-    
-    // Мигание текста каждые 20 сек
     if (uptime % 40 < 20) {
-        Ui.GetContext().Hint.Value = "Режим от Тяночки!";
+        Ui.GetContext().Hint.Value = "Режим от Тяночки! Только команда Синие.";
     } else {
         Ui.GetContext().Hint.Value = "/help - команды";
     }
@@ -87,18 +84,15 @@ Players.OnPlayerConnected.Add(function(player) {
         inv.BuildInfinity.Value = false;
     }
 
+    // Принудительно кидаем в Синих
+    if (blueTeam) {
+        blueTeam.Add(player);
+    }
+
     player.PopUp("Добро пожаловать! Ваш ID: " + roomId);
 });
 
-// 4. ЗОНЫ (AREAS) - ГЛАВНОЕ ИСПРАВЛЕНИЕ
-// Теперь код читает параметры из имени зоны (Name field in editor)
-// Формат имени зоны:
-// Farm: "100" (начислит 100 монет)
-// Weapon: "100@5" (цена 100, ID предмета 5)
-// XP: "500@100" (цена 500, хп 100)
-// Status: "200@VIP" (цена 200, статус VIP)
-// TP: "100@200@300" (координаты X Y Z - если игра поддерживает, иначе просто спавн)
-
+// 4. ЗОНЫ (AREAS)
 var triggerService = AreaPlayerTriggerService.Get("MainTrigger");
 triggerService.Enable = true;
 triggerService.OnEnter.Add(function(player, area) {
@@ -124,7 +118,6 @@ triggerService.OnEnter.Add(function(player, area) {
         if (coins >= price) {
             player.Properties.Get("Coins").Value = coins - price;
             var inv = player.Inventory;
-            // Простая логика выдачи по ID
             if (itemId === 0) inv.Main.Value = true;
             else if (itemId === 1) inv.Secondary.Value = true;
             else if (itemId === 2) inv.Melee.Value = true;
@@ -134,7 +127,6 @@ triggerService.OnEnter.Add(function(player, area) {
             else if (itemId === 6) inv.SecondaryInfinity.Value = true;
             else if (itemId === 7) inv.Explosive.Value = true;
             else if (itemId === 8) inv.BuildInfinity.Value = true;
-            
             player.PopUp("Предмет куплен!");
         } else {
             player.PopUp("Недостаточно средств!");
@@ -148,9 +140,6 @@ triggerService.OnEnter.Add(function(player, area) {
         var hpAmount = parseInt(parts) || 100;
         if (coins >= price) {
             player.Properties.Get("Coins").Value = coins - price;
-            // В текущей версии API нет прямого изменения HP через JS, 
-            // поэтому мы просто даем статус "лечение" или игнорируем HP, 
-            // если сервер не позволяет менять HP напрямую.
             player.PopUp("Здоровье восстановлено (условно)!");
         } else {
             player.PopUp("Недостаточно средств!");
@@ -184,7 +173,6 @@ triggerService.OnEnter.Add(function(player, area) {
     }
 
     // --- ТЕЛЕПОРТ (Tag: tp) ---
-    // Name: "X@Y@Z" (если поддерживается) или просто спавн
     if (tag === "tp") {
         player.Spawns.Spawn();
         player.PopUp("Телепортация!");
@@ -206,14 +194,13 @@ try {
             return;
         }
 
-        // /tp(ID)
         var tpMatch = message.match(/^\/tp$(\d+)$\$/);
         if (tpMatch) {
             var targetId = parseInt(tpMatch);
             var players = Players.GetEnumerator();
             while (players.MoveNext()) {
                 if (players.Current.Properties.Get("RoomId").Value === targetId) {
-                    player.Spawns.Spawn(); // Упрощенный телепорт
+                    player.Spawns.Spawn();
                     player.PopUp("Телепорт к игроку " + targetId);
                     return;
                 }
@@ -221,7 +208,6 @@ try {
             player.PopUp("Игрок не найден!");
         }
 
-        // /pop(Текст)
         var popMatch = message.match(/^\/pop$(.+)$\$/);
         if (popMatch) {
             var text = popMatch;
@@ -231,7 +217,6 @@ try {
             }
         }
 
-        // /adm(ID) и /ban(ID) - только для админов
         var isAdmin = player.Properties.Get("IsAdmin").Value;
         
         var admMatch = message.match(/^\/adm$(\d+)$\$/);
@@ -276,4 +261,4 @@ try {
 }
 
 // Инициализация UI
-Ui.GetContext().Hint.Value = "Режим от Тяночки!";
+Ui.GetContext().Hint.Value = "Режим от Тяночки! Только команда Синие.";
